@@ -17,6 +17,5 @@ describe UserTokenController do
       user_token.instance.should be_a_kind_of UserToken
       user_token.instance.should equal UserToken.instance
     end
-
   end
 end

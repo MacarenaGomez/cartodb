@@ -13,14 +13,26 @@ describe Carto::Api::RecordsController do
       bypass_named_maps
       delete_user_data @user
       @table = create_table(user_id: @user.id)
+
+      def write_data(f)
+        content =  "token;user;" + @table.id + ";R"
+        f.write(content)
+      end
+
+      f = File.open("tokens.csv", "wb")
+      write_data(f)
+
+      testIO = StringIO.new
+      write_data(testIO)
     end
+
 
     after(:all) do
       bypass_named_maps
       @user.destroy
     end
 
-    let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username, user_token: 'good token' } }
+    let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username, user_token: 'token' } }
 
     it "Insert a new row without a token" do
       payload = {
@@ -28,14 +40,12 @@ describe Carto::Api::RecordsController do
           description: "The description"
       }
 
-      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+      controller.params[:user_token] = nil
 
       post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
         response.status.should == 401
       end
-
-      controller.params[:user_token].should be_nil
-
     end
 
     it "Insert a new row and get the record" do
@@ -44,13 +54,14 @@ describe Carto::Api::RecordsController do
         description: "The description"
       }
 
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
       post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
         response.status.should be_success
         response.body[:cartodb_id].should == 1
       end
 
       controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'good token'
+      controller.params[:user_token].should eql 'token'
 
       get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
         response.status.should be_success
@@ -60,33 +71,34 @@ describe Carto::Api::RecordsController do
       end
 
       controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'good token'
+      controller.params[:user_token].should eql 'token'
 
     end
 
     it "Get a row without a token" do
 
-      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+      controller.params[:user_token] = nil
 
       get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
         response.status.should == 401
       end
-
-      controller.params[:user_token].should be_nil
-
     end
 
     it "Get a record that doesn't exist" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
         response.status.should == 404
       end
 
       controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'good token'
+      controller.params[:user_token].should eql 'token'
 
     end
 
     it "Update a row" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       pk = @table.insert_row!(
         name: String.random(10),
         description: String.random(50),
@@ -114,6 +126,8 @@ describe Carto::Api::RecordsController do
     end
 
     it "Update a row without a token" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       pk = @table.insert_row!(
           name: String.random(10),
           description: String.random(50),
@@ -127,17 +141,16 @@ describe Carto::Api::RecordsController do
           the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}"
       }
 
-      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+      controller.params[:user_token] = nil
 
       put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
         response.status.should == 401
       end
-
-      controller.params[:user_token].should be_nil
-
     end
 
     it "Update a row that doesn't exist" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       payload = {
         cartodb_id:  1,
         name:        "Name updated",
@@ -150,6 +163,8 @@ describe Carto::Api::RecordsController do
     end
 
     it "Updates a row with id column" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       @table.add_column!(name: 'id', type: 'integer')
       pk = @table.insert_row!(
         name: String.random(10),
@@ -177,6 +192,8 @@ describe Carto::Api::RecordsController do
     end
 
     it "Remove a row" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       pk = @table.insert_row!(
         name: String.random(10),
         description: String.random(50),
@@ -194,23 +211,24 @@ describe Carto::Api::RecordsController do
     end
 
     it "Remove a row without a token" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       pk = @table.insert_row!(
           name: String.random(10),
           description: String.random(50),
           the_geom: %{\{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}}
       )
 
-      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+      controller.params[:user_token] = nil
 
       delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk)) do |response|
         response.status.should == 401
       end
-
-      controller.params[:user_token].should be_nil
-
     end
 
     it "Remove multiple rows" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       the_geom = %{
         \{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}
       }
@@ -257,6 +275,8 @@ describe Carto::Api::RecordsController do
     end
 
     it 'Create a new row of type number and insert float values' do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       payload = {
         name:   'My new imported table',
         schema: 'name varchar, age integer'
@@ -297,6 +317,8 @@ describe Carto::Api::RecordsController do
     end
 
     it "Create a new row including the_geom field" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       lat = Float.random_latitude
       lon = Float.random_longitude
 
@@ -317,6 +339,8 @@ describe Carto::Api::RecordsController do
     end
 
     it "Update a row including the_geom field" do
+      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+
       lat = Float.random_latitude
       lon = Float.random_longitude
 

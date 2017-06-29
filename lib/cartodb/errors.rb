@@ -1,4 +1,5 @@
 class RecordNotFound < StandardError; end
+class InvalidUserToken < StandardError; end
 class NoHTML5Compliant < Exception; end
 
 module CartoDB
@@ -153,7 +154,5 @@ module CartoDB
     end
 
   end
-
-  class InvalidUserToken < StandardError; end
 
 end

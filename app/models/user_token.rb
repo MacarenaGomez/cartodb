@@ -1,5 +1,5 @@
 # encoding: utf-8
-require 'SecureRandom'
+require 'securerandom'
 require 'singleton'
 
 class UserToken
@@ -7,7 +7,6 @@ class UserToken
 
 	FILE_NAME = 'tokens.csv'
 
-	#Esto no lo piden
 	def generate_token(dataset, permission)
     token = get_token_line('', dataset, permission).first
 		if token.nil?
@@ -32,7 +31,7 @@ class UserToken
 	private
 
 	def get_token_line(token, dataset, permission)
-		return File.foreach(FILE_NAME).grep(token + ';' + current_user + ';' + dataset + ';' + permission)[0].split(';')
+    return File.foreach(FILE_NAME).grep(token + ';' + current_user + ';' + dataset + ';' + permission)[0].split(';')
 	end
 
 end 
