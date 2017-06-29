@@ -10,6 +10,10 @@ module Carto
       REJECT_PARAMS = %w{ format controller action row_id requestId column_id
                           api_key table_id oauth_token oauth_token_secret api_key user_domain }.freeze
 
+      PERMISSIONS = ['R','RW']
+
+      rescue_from InvalidUserToken, :with => :invalid_user_token
+
       before_filter :set_start_time
       before_filter :load_user_table, only: [:show, :create, :update, :destroy]
       before_filter :read_privileges?, only: [:show]
@@ -68,6 +72,7 @@ module Carto
         render_jsonp({ errors: ["row identified with #{params[:cartodb_id]} not found"] }, 404)
       end
 
+      
       protected
 
       def filtered_row
@@ -75,17 +80,31 @@ module Carto
       end
 
       def load_user_table
-        @user_table = Carto::Helpers::TableLocator.new.get_by_id_or_name(params[:table_id], current_user)
+        @user_table = Carto::Helpers::TableLocator.new.get_by_id_or_name(params[:table_id], params[:user_token], current_user)
         raise RecordNotFound unless @user_table
       end
 
       def read_privileges?
-        head(401) unless current_user && @user_table.visualization.is_viewable_by_user?(current_user)
+        head(401) unless current_user && @user_table.visualization.is_viewable_by_user?(current_user) && is_read_token?
       end
 
       def write_privileges?
-        head(401) unless current_user && @user_table.visualization.writable_by?(current_user)
+        head(401) unless current_user && @user_table.visualization.writable_by?(current_user) && is_write_token?
       end
+
+      def is_read_token?
+        return UserToken.check_permission?(params[:user_token], params[:table_id], PERMISSIONS[0])
+      end  
+
+      def is_write_token?
+        return UserToken.check_permission?(params[:user_token], params[:table_id], PERMISSIONS[1])
+      end  
+      
+      def invalid_user_token
+        render_jsonp({ errors: ["Invalid user token"] }, 401)
+      end
+
+
     end
   end
 end

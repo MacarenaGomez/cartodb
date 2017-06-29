@@ -20,7 +20,23 @@ describe Carto::Api::RecordsController do
       @user.destroy
     end
 
-    let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+    let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username, user_token: 'good token' } }
+
+    it "Insert a new row without a token" do
+      payload = {
+          name: "Name 123",
+          description: "The description"
+      }
+
+      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+
+      post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
+        response.status.should == 401
+      end
+
+      controller.params[:user_token].should be_nil
+
+    end
 
     it "Insert a new row and get the record" do
       payload = {
@@ -33,18 +49,41 @@ describe Carto::Api::RecordsController do
         response.body[:cartodb_id].should == 1
       end
 
+      controller.params[:user_token].should_not be_nil
+      controller.params[:user_token].should eql 'good token'
+
       get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
         response.status.should be_success
         response.body[:cartodb_id].should == 1
         response.body[:name].should == payload[:name]
         response.body[:description].should == payload[:description]
       end
+
+      controller.params[:user_token].should_not be_nil
+      controller.params[:user_token].should eql 'good token'
+
+    end
+
+    it "Get a row without a token" do
+
+      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+
+      get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
+        response.status.should == 401
+      end
+
+      controller.params[:user_token].should be_nil
+
     end
 
     it "Get a record that doesn't exist" do
       get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
         response.status.should == 404
       end
+
+      controller.params[:user_token].should_not be_nil
+      controller.params[:user_token].should eql 'good token'
+
     end
 
     it "Update a row" do
@@ -68,6 +107,34 @@ describe Carto::Api::RecordsController do
         response.body[:description].should == payload[:description]
         response.body[:the_geom].should == payload[:the_geom]
       end
+
+      controller.params[:user_token].should_not be_nil
+      controller.params[:user_token].should eql 'good token'
+
+    end
+
+    it "Update a row without a token" do
+      pk = @table.insert_row!(
+          name: String.random(10),
+          description: String.random(50),
+          the_geom: %{\{"type":"Point","coordinates":[0.966797,55.91843]\}}
+      )
+
+      payload = {
+          cartodb_id:   pk,
+          name:         "Name updated",
+          description:  "Description updated",
+          the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}"
+      }
+
+      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+
+      put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
+        response.status.should == 401
+      end
+
+      controller.params[:user_token].should be_nil
+
     end
 
     it "Update a row that doesn't exist" do
@@ -120,6 +187,27 @@ describe Carto::Api::RecordsController do
         response.status.should == 204
         @table.rows_counted.should == 0
       end
+
+      controller.params[:user_token].should_not be_nil
+      controller.params[:user_token].should eql 'good token'
+
+    end
+
+    it "Remove a row without a token" do
+      pk = @table.insert_row!(
+          name: String.random(10),
+          description: String.random(50),
+          the_geom: %{\{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}}
+      )
+
+      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+
+      delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk)) do |response|
+        response.status.should == 401
+      end
+
+      controller.params[:user_token].should be_nil
+
     end
 
     it "Remove multiple rows" do

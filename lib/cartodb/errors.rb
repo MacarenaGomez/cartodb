@@ -154,4 +154,6 @@ module CartoDB
 
   end
 
+  class InvalidUserToken < StandardError; end
+
 end
