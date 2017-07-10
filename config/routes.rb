@@ -9,6 +9,7 @@
 # Can be also done at controller source files by using -> skip_before_filter :ensure_org_url_if_org_user
 
 CartoDB::Application.routes.draw do
+
   # Double use: for user public dashboard AND org dashboard
   get '/[(user/:user_domain)(u/:user_domain)]' => 'admin/pages#public'
   root to: 'admin/pages#index'
@@ -366,6 +367,9 @@ CartoDB::Application.routes.draw do
     post   '(/user/:user_domain)(/u/:user_domain)/api/v1/tables/:table_id/records'             => 'records#create',  as: :api_v1_tables_records_create, constraints: { table_id: /[^\/]+/ }
     put    '(/user/:user_domain)(/u/:user_domain)/api/v1/tables/:table_id/records/:cartodb_id' => 'records#update',  as: :api_v1_tables_record_update,  constraints: { table_id: /[^\/]+/ }
     delete '(/user/:user_domain)(/u/:user_domain)/api/v1/tables/:table_id/records/:cartodb_id' => 'records#destroy', as: :api_v1_tables_record_destroy, constraints: { table_id: /[^\/]+/ }
+
+    # Tokens
+    post   '(/user/:user_domain)(/u/:user_domain)/api/v1/tables/:table_id/user_tokens' => 'user_tokens#create',  as: :api_v1_tables_user_tokens_create, constraints: { table_id: /[^\/]+/ }
 
     # Imports
     get    '(/user/:user_domain)(/u/:user_domain)/api/v1/imports'                          => 'imports#index',                       as: :api_v1_imports_index

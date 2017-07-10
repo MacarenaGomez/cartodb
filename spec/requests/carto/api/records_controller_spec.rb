@@ -2,6 +2,9 @@
 
 require_relative '../../../spec_helper'
 
+require 'rspec/mocks'
+require 'rspec/mocks/standalone'
+
 describe Carto::Api::RecordsController do
   describe '#show legacy tests' do
 
@@ -13,360 +16,344 @@ describe Carto::Api::RecordsController do
       bypass_named_maps
       delete_user_data @user
       @table = create_table(user_id: @user.id)
-
-      def write_data(f)
-        content =  "token;user;" + @table.id + ";R"
-        f.write(content)
-      end
-
-      f = File.open("tokens.csv", "wb")
-      write_data(f)
-
-      testIO = StringIO.new
-      write_data(testIO)
-    end
-
+     end
 
     after(:all) do
       bypass_named_maps
       @user.destroy
     end
 
-    let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username, user_token: 'token' } }
+    let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username } }
+    let(:content) { StringIO.new( "token,user00000001,table00000004,RW" ) }
 
-    it "Insert a new row without a token" do
-      payload = {
-          name: "Name 123",
-          description: "The description"
-      }
+    context "url without user token" do
 
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-      controller.params[:user_token] = nil
+      it "Insert a new row" do
+        payload = {
+            name: "Name 123",
+            description: "The description"
+        }
 
-      post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
-        response.status.should == 401
+        post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
+          response.status.should == 404
+        end
+      end
+
+      it "Get a row" do
+
+        get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
+          response.status.should == 404
+        end
+
+      end
+
+      it "Update a row" do
+
+        pk = @table.insert_row!(
+            name: String.random(10),
+            description: String.random(50),
+            the_geom: %{\{"type":"Point","coordinates":[0.966797,55.91843]\}}
+        )
+
+        payload = {
+            cartodb_id:   pk,
+            name:         "Name updated",
+            description:  "Description updated",
+            the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}"
+        }
+
+        put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
+          response.status.should == 404
+        end
+
+      end
+
+      it "Remove a row" do
+
+        pk = @table.insert_row!(
+            name: String.random(10),
+            description: String.random(50),
+            the_geom: %{\{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}}
+        )
+
+        delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk)) do |response|
+          response.status.should == 404
+        end
+
       end
     end
 
-    it "Insert a new row and get the record" do
-      payload = {
-        name: "Name 123",
-        description: "The description"
-      }
+    context "url with user token" do
 
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-      post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        response.body[:cartodb_id].should == 1
+      let(:params) { { api_key: @user.api_key, table_id: @table.name, user_domain: @user.username, user_token: "token" } }
+
+      it "Insert a new row and get the record" do
+
+        payload = {
+            name: "Name 123",
+            description: "The description"
+        }
+
+        File.should_receive(:open).and_return(content)
+
+        post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
+          response.status.should == 200
+          response.status.should be_success
+          response.body[:cartodb_id].should == 1
+        end
+
+        controller.params[:user_token].should_not be_nil
+        controller.params[:user_token].should eql 'token'
+
+        get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
+          response.status.should be_success
+          response.body[:cartodb_id].should == 1
+          response.body[:name].should == payload[:name]
+          response.body[:description].should == payload[:description]
+        end
+
+        controller.params[:user_token].should_not be_nil
+        controller.params[:user_token].should eql 'token'
+
       end
 
-      controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'token'
+      it "Get a record that doesn't exist" do
 
-      get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
-        response.status.should be_success
-        response.body[:cartodb_id].should == 1
-        response.body[:name].should == payload[:name]
-        response.body[:description].should == payload[:description]
+        get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
+          response.status.should == 404
+        end
+
+        controller.params[:user_token].should_not be_nil
+        controller.params[:user_token].should eql 'token'
       end
 
-      controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'token'
+      it "Update a row" do
 
-    end
+        pk = @table.insert_row!(
+            name: String.random(10),
+            description: String.random(50),
+            the_geom: %{\{"type":"Point","coordinates":[0.966797,55.91843]\}}
+        )
 
-    it "Get a row without a token" do
+        payload = {
+            cartodb_id:   pk,
+            name:         "Name updated",
+            description:  "Description updated",
+            the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}"
+        }
 
-      controller.params[:user_token] = nil
+        put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
+          response.status.should be_success
+          response.body[:cartodb_id].should == pk
+          response.body[:name].should == payload[:name]
+          response.body[:description].should == payload[:description]
+          response.body[:the_geom].should == payload[:the_geom]
+        end
 
-      get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
-        response.status.should == 401
-      end
-    end
+        controller.params[:user_token].should_not be_nil
+        controller.params[:user_token].should eql 'token'
 
-    it "Get a record that doesn't exist" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      get_json api_v1_tables_records_show_url(params.merge(id: 1)) do |response|
-        response.status.should == 404
-      end
-
-      controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'token'
-
-    end
-
-    it "Update a row" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      pk = @table.insert_row!(
-        name: String.random(10),
-        description: String.random(50),
-        the_geom: %{\{"type":"Point","coordinates":[0.966797,55.91843]\}}
-      )
-
-      payload = {
-        cartodb_id:   pk,
-        name:         "Name updated",
-        description:  "Description updated",
-        the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}"
-      }
-
-      put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        response.body[:cartodb_id].should == pk
-        response.body[:name].should == payload[:name]
-        response.body[:description].should == payload[:description]
-        response.body[:the_geom].should == payload[:the_geom]
       end
 
-      controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'good token'
+      it "Update a row that doesn't exist" do
 
-    end
+        payload = {
+            cartodb_id:  1,
+            name:        "Name updated",
+            description: "Description updated"
+        }
 
-    it "Update a row without a token" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      pk = @table.insert_row!(
-          name: String.random(10),
-          description: String.random(50),
-          the_geom: %{\{"type":"Point","coordinates":[0.966797,55.91843]\}}
-      )
-
-      payload = {
-          cartodb_id:   pk,
-          name:         "Name updated",
-          description:  "Description updated",
-          the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}"
-      }
-
-      controller.params[:user_token] = nil
-
-      put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
-        response.status.should == 401
-      end
-    end
-
-    it "Update a row that doesn't exist" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      payload = {
-        cartodb_id:  1,
-        name:        "Name updated",
-        description: "Description updated"
-      }
-
-      put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
-        response.status.should == 404
-      end
-    end
-
-    it "Updates a row with id column" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      @table.add_column!(name: 'id', type: 'integer')
-      pk = @table.insert_row!(
-        name: String.random(10),
-        description: String.random(50),
-        the_geom: '{"type":"Point","coordinates":[0.966797,55.91843]}',
-        id: 12
-      )
-
-      payload = {
-        cartodb_id:   pk,
-        name:         "Name updated",
-        description:  "Description updated",
-        the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}",
-        id:           5511
-      }
-
-      put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        response.body[:cartodb_id].should == pk
-        response.body[:name].should == payload[:name]
-        response.body[:description].should == payload[:description]
-        response.body[:the_geom].should == payload[:the_geom]
-        response.body[:id].should == payload[:id]
-      end
-    end
-
-    it "Remove a row" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      pk = @table.insert_row!(
-        name: String.random(10),
-        description: String.random(50),
-        the_geom: %{\{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}}
-      )
-
-      delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk)) do |response|
-        response.status.should == 204
-        @table.rows_counted.should == 0
+        put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
+          response.status.should == 404
+        end
       end
 
-      controller.params[:user_token].should_not be_nil
-      controller.params[:user_token].should eql 'good token'
 
-    end
+      it "Updates a row with id column" do
 
-    it "Remove a row without a token" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+        @table.add_column!(name: 'id', type: 'integer')
+        pk = @table.insert_row!(
+            name: String.random(10),
+            description: String.random(50),
+            the_geom: '{"type":"Point","coordinates":[0.966797,55.91843]}',
+            id: 12
+        )
 
-      pk = @table.insert_row!(
-          name: String.random(10),
-          description: String.random(50),
-          the_geom: %{\{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}}
-      )
+        payload = {
+            cartodb_id:   pk,
+            name:         "Name updated",
+            description:  "Description updated",
+            the_geom:     "{\"type\":\"Point\",\"coordinates\":[-3.010254,55.973798]}",
+            id:           5511
+        }
 
-      controller.params[:user_token] = nil
-
-      delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk)) do |response|
-        response.status.should == 401
+        put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
+          response.status.should be_success
+          response.body[:cartodb_id].should == pk
+          response.body[:name].should == payload[:name]
+          response.body[:description].should == payload[:description]
+          response.body[:the_geom].should == payload[:the_geom]
+          response.body[:id].should == payload[:id]
+        end
       end
-    end
 
-    it "Remove multiple rows" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+      it "Remove a row" do
 
-      the_geom = %{
+        pk = @table.insert_row!(
+            name: String.random(10),
+            description: String.random(50),
+            the_geom: %{\{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}}
+        )
+
+        delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk)) do |response|
+          response.status.should == 204
+          @table.rows_counted.should == 0
+        end
+
+        controller.params[:user_token].should_not be_nil
+        controller.params[:user_token].should eql 'token'
+
+      end
+
+      it "Remove multiple rows" do
+
+        the_geom = %{
         \{"type":"Point","coordinates":[#{Float.random_longitude},#{Float.random_latitude}]\}
-      }
-      @table.insert_row!(
-        name:         String.random(10),
-        description:  String.random(50),
-        the_geom:     the_geom
-      )
+        }
+        @table.insert_row!(
+            name:         String.random(10),
+            description:  String.random(50),
+            the_geom:     the_geom
+        )
 
-      pk1 = @table.insert_row!(
-        name:         String.random(10),
-        description:  String.random(50),
-        the_geom:     the_geom
-      )
+        pk1 = @table.insert_row!(
+            name:         String.random(10),
+            description:  String.random(50),
+            the_geom:     the_geom
+        )
 
-      pk2 = @table.insert_row!(
-        name:         String.random(10),
-        description:  String.random(50),
-        the_geom:     the_geom
-      )
+        pk2 = @table.insert_row!(
+            name:         String.random(10),
+            description:  String.random(50),
+            the_geom:     the_geom
+        )
 
-      pk3 = @table.insert_row!(
-        name:         String.random(10),
-        description:  String.random(50),
-        the_geom:     the_geom
-      )
+        pk3 = @table.insert_row!(
+            name:         String.random(10),
+            description:  String.random(50),
+            the_geom:     the_geom
+        )
 
-      @table.rows_counted.should == 4
+        @table.rows_counted.should == 4
 
-      delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk1)) do |response|
-        response.status.should == 204
-        @table.rows_counted.should == 3
+        delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk1)) do |response|
+          response.status.should == 204
+          @table.rows_counted.should == 3
+        end
+
+        delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk2)) do |response|
+          response.status.should == 204
+          @table.rows_counted.should == 2
+        end
+
+        delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk3)) do |response|
+          response.status.should == 204
+          @table.rows_counted.should == 1
+        end
       end
 
-      delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk2)) do |response|
-        response.status.should == 204
-        @table.rows_counted.should == 2
+
+      it 'Create a new row of type number and insert float values' do
+
+        payload = {
+            name:   'My new imported table',
+            schema: 'name varchar, age integer'
+        }
+
+        table_name = post_json api_v1_tables_create_url(params.merge(payload)) do |response|
+          response.status.should be_success
+          response.body[:name]
+        end
+
+        # this test uses its own table
+        custom_params = params.merge(table_id: table_name)
+
+        payload = {
+            name: 'Fernando Blat',
+            age: '29'
+        }
+
+        post_json api_v1_tables_records_create_url(custom_params.merge(payload)) do |response|
+          response.status.should be_success
+        end
+
+        payload = {
+            name: 'Beatriz',
+            age: 30.2
+        }
+
+        row_id = post_json api_v1_tables_records_create_url(custom_params.merge(payload)) do |response|
+          response.status.should be_success
+          response.body[:cartodb_id]
+        end
+
+        get_json api_v1_tables_records_show_url(custom_params.merge(id: row_id)) do |response|
+          response.status.should be_success
+          response.body[:name].should == payload[:name]
+          response.body[:age].should == payload[:age]
+        end
       end
 
-      delete_json api_v1_tables_record_update_url(params.merge(cartodb_id: pk3)) do |response|
-        response.status.should == 204
-        @table.rows_counted.should == 1
-      end
-    end
+      it "Create a new row including the_geom field" do
 
-    it 'Create a new row of type number and insert float values' do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+        lat = Float.random_latitude
+        lon = Float.random_longitude
 
-      payload = {
-        name:   'My new imported table',
-        schema: 'name varchar, age integer'
-      }
+        payload = {
+            name:         "Fernando Blat",
+            description:  "Geolocated programmer",
+            the_geom:     %{\{"type":"Point","coordinates":[#{lon.to_f},#{lat.to_f}]\}}
+        }
 
-      table_name = post_json api_v1_tables_create_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        response.body[:name]
-      end
-
-      # this test uses its own table
-      custom_params = params.merge(table_id: table_name)
-
-      payload = {
-        name: 'Fernando Blat',
-        age: '29'
-      }
-
-      post_json api_v1_tables_records_create_url(custom_params.merge(payload)) do |response|
-        response.status.should be_success
+        post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
+          response.status.should be_success
+          # INFO: Postgis sometimes rounds up so cannot directly compare values
+          # response.body[:the_geom].should == payload[:the_geom]
+          (/\"type\":\"point\"/i =~ response.body[:the_geom]).nil?.should eq false
+          response.body[:name].should == payload[:name]
+          response.body[:description].should == payload[:description]
+        end
       end
 
-      payload = {
-        name: 'Beatriz',
-        age: 30.2
-      }
+      it "Update a row including the_geom field" do
 
-      row_id = post_json api_v1_tables_records_create_url(custom_params.merge(payload)) do |response|
-        response.status.should be_success
-        response.body[:cartodb_id]
-      end
+        lat = Float.random_latitude
+        lon = Float.random_longitude
 
-      get_json api_v1_tables_records_show_url(custom_params.merge(id: row_id)) do |response|
-        response.status.should be_success
-        response.body[:name].should == payload[:name]
-        response.body[:age].should == payload[:age]
-      end
-    end
+        payload = {
+            name:         "Fernando Blat",
+            description:  "Geolocated programmer",
+            the_geom:     %{\{"type":"Point","coordinates":[#{lon.to_f},#{lat.to_f}]\}}
+        }
 
-    it "Create a new row including the_geom field" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
+        pk = post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
+          response.status.should be_success
+          response.body[:cartodb_id]
+        end
 
-      lat = Float.random_latitude
-      lon = Float.random_longitude
+        lat = Float.random_latitude
+        lon = Float.random_longitude
+        payload = {
+            cartodb_id:   pk,
+            the_geom:     %{\{"type":"Point","coordinates":[#{lon.to_f},#{lat.to_f}]\}}
+        }
 
-      payload = {
-        name:         "Fernando Blat",
-        description:  "Geolocated programmer",
-        the_geom:     %{\{"type":"Point","coordinates":[#{lon.to_f},#{lat.to_f}]\}}
-      }
-
-      post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        # INFO: Postgis sometimes rounds up so cannot directly compare values
-        # response.body[:the_geom].should == payload[:the_geom]
-        (/\"type\":\"point\"/i =~ response.body[:the_geom]).nil?.should eq false
-        response.body[:name].should == payload[:name]
-        response.body[:description].should == payload[:description]
-      end
-    end
-
-    it "Update a row including the_geom field" do
-      ApplicationController.any_instance.stubs(:current_user).returns(@user)
-
-      lat = Float.random_latitude
-      lon = Float.random_longitude
-
-      payload = {
-        name:         "Fernando Blat",
-        description:  "Geolocated programmer",
-        the_geom:     %{\{"type":"Point","coordinates":[#{lon.to_f},#{lat.to_f}]\}}
-      }
-
-      pk = post_json api_v1_tables_records_create_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        response.body[:cartodb_id]
-      end
-
-      lat = Float.random_latitude
-      lon = Float.random_longitude
-      payload = {
-        cartodb_id:   pk,
-        the_geom:     %{\{"type":"Point","coordinates":[#{lon.to_f},#{lat.to_f}]\}}
-      }
-
-      put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
-        response.status.should be_success
-        (/\"type\":\"point\"/i =~ response.body[:the_geom]).nil?.should eq false
-        # INFO: Postgis sometimes rounds up so cannot directly compare values
-        # response.body[:the_geom].should == payload[:the_geom]
+        put_json api_v1_tables_record_update_url(params.merge(payload)) do |response|
+          response.status.should be_success
+          (/\"type\":\"point\"/i =~ response.body[:the_geom]).nil?.should eq false
+          # INFO: Postgis sometimes rounds up so cannot directly compare values
+          # response.body[:the_geom].should == payload[:the_geom]
+        end
       end
     end
   end

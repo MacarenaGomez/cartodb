@@ -1,4 +1,5 @@
 # encoding: utf-8
+
 require 'securerandom'
 require 'singleton'
 
@@ -7,31 +8,47 @@ class UserToken
 
 	FILE_NAME = 'tokens.csv'
 
-	def generate_token(dataset, permission)
-    token = get_token_line('', dataset, permission).first
-		if token.nil?
-			token = SecureRandom.uuid
-			new_line = token + ';' + current_user + ';' + dataset + ';' + permission 
+  def initialize
+    File.open(FILE_NAME,'wb')
+  end
 
-			File.open(target, "w+") do |f|
-	  			f.write(new_line)	
-	  		end	
-		end
-		token
+	def generate_token(dataset, permission, username)
+    table_name = ::Table.table_and_schema(dataset)
+
+    if !table_name.nil?
+      token = get_token_line('', dataset, permission, username)[0]
+      if token.nil?
+        token = SecureRandom.uuid
+        new_line = token + ',' + username + ',' + dataset + ',' + permission + "\n"
+        open(FILE_NAME, 'w') do |file|
+          file.write new_line
+          file.close
+        end
+      end
+      token
+    end
 	end
 
-	def is_valid?(token, dataset)
-		return get_token_line(token, dataset, '').size > 0
+	def is_valid?(token, username, dataset)
+    get_token_line(token, username, dataset, '').size > 0
 	end
 
-	def check_permission?(token, dataset, permission)
-	  return get_token_line(token, dataset, permission).last.upcase == permission
-	end
+	def check_permission(token, username, dataset, permission)
+    get_token_line(token, username, dataset, permission)[-1].include? permission
+  end
+
+  def get_number_of_tokens
+    count = 0
+    count = %x{wc -l < "#{FILE_NAME}"}.to_i
+  end
 
 	private
 
-	def get_token_line(token, dataset, permission)
-    return File.foreach(FILE_NAME).grep(token + ';' + current_user + ';' + dataset + ';' + permission)[0].split(';')
-	end
+	def get_token_line(token, username, dataset, permission)
+    l = File.open(FILE_NAME) do |file|
+       file.find { |line| line =~ /token + ',' + username + ',' + dataset + ',' + permission/}
+    end
+    l = (l.nil?)? [] : l.string.split(',')
+  end
 
-end 
+end
